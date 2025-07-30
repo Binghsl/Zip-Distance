@@ -2,3 +2,4 @@ streamlit
 pandas
 googlemaps
 openpyxl
+geopy>=2.3
