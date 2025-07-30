@@ -1,60 +1,61 @@
 import pandas as pd
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from math import radians, sin, cos, sqrt, atan2
+import streamlit as st
+import googlemaps
 
-# 1. Read your template CSV
-df_template = pd.read_csv('ZIP.csv', dtype={'From Zip': str, 'To Zip': str})
-df_template['From Zip'] = df_template['From Zip'].str.zfill(5)
-df_template['To Zip'] = df_template['To Zip'].str.zfill(5)
+st.title("Driving Distance Calculator (ZIP to ZIP via Google Maps API)")
 
-# 2. Expand to all 5 source ZIPs
-sources = ['52806', '46168', '42307', '60446', '91730']
-to_zips = df_template['To Zip'].unique()
-df = pd.DataFrame(
-    [(src, tgt) for src in sources for tgt in to_zips],
-    columns=['From Zip', 'To Zip']
-)
+# Step 1: Upload ZIP file
+uploaded_file = st.file_uploader("Upload ZIP.csv (with column 'To Zip')", type=["csv"])
 
-# 3. Use geopy to look up each ZIP’s lat/lon
-geo = Nominatim(user_agent="zip-distance-calculator")
-geocode = RateLimiter(geo.geocode, min_delay_seconds=1, max_retries=2)
+# Step 2: Input your API key
+api_key = st.text_input("Enter your Google Maps API Key", type="password")
 
-def lookup_coord(zipcode):
-    loc = geocode({'postalcode': zipcode, 'country': 'US'})
-    if loc:
-        return loc.latitude, loc.longitude
-    else:
-        return None, None
+# Define your 5 source ZIPs
+sources = [z.zfill(5) for z in ['52806', '46168', '42307', '60446', '91730']]
 
-# Build a cache of coords
-cache = {}
-for z in set(df['From Zip']).union(df['To Zip']):
-    cache[z] = lookup_coord(z)
+if uploaded_file is not None and api_key:
+    # Read and clean ZIPs
+    df_template = pd.read_csv(uploaded_file, dtype={'To Zip': str})
+    df_template['To Zip'] = df_template['To Zip'].fillna('').str.zfill(5)
+    to_zips = df_template['To Zip'].unique()
 
-# 4. Haversine distance
-def haversine(a, b):
-    lat1, lon1 = a
-    lat2, lon2 = b
-    R = 3958.8  # Earth radius in miles
-    φ1, φ2 = radians(lat1), radians(lat2)
-    dφ = radians(lat2 - lat1)
-    dλ = radians(lon2 - lon1)
-    h = sin(dφ/2)**2 + cos(φ1)*cos(φ2)*sin(dλ/2)**2
-    return 2*R*atan2(sqrt(h), sqrt(1-h))
+    # Initialize Google Maps client
+    gmaps = googlemaps.Client(key=api_key)
 
-# 5. Compute and fill
-distances = []
-for _, row in df.iterrows():
-    coord1 = cache[row['From Zip']]
-    coord2 = cache[row['To Zip']]
-    if None in coord1 or None in coord2:
-        distances.append(None)
-    else:
-        distances.append(round(haversine(coord1, coord2), 1))
+    # Build all combinations
+    pairs = [(src, dst) for src in sources for dst in to_zips]
+    results = []
 
-df['Distance on map in mile'] = distances
+    st.info("Querying Google Maps for driving distances...")
 
-# 6. Save back out
-df.to_csv('ZIP_with_distances.csv', index=False)
-print("Done – distances written to ZIP_with_distances.csv")
+    for origin, destination in pairs:
+        try:
+            matrix = gmaps.distance_matrix(origins=origin, destinations=destination, mode="driving")
+            element = matrix['rows'][0]['elements'][0]
+            if element['status'] == 'OK':
+                miles = element['distance']['value'] / 1609.34  # meters to miles
+                duration = element['duration']['text']
+            else:
+                miles = None
+                duration = None
+        except Exception as e:
+            miles = None
+            duration = None
+        results.append({
+            "From Zip": origin,
+            "To Zip": destination,
+            "Driving Distance (miles)": round(miles, 1) if miles else None,
+            "Estimated Duration": duration
+        })
+
+    df_result = pd.DataFrame(results)
+    st.success("✅ Done calculating driving distances!")
+    st.dataframe(df_result)
+
+    csv = df_result.to_csv(index=False).encode("utf-8")
+    st.download_button("Download results as CSV", csv, file_name="driving_distances.csv", mime="text/csv")
+
+elif uploaded_file and not api_key:
+    st.warning("🔐 Please enter your Google Maps API key.")
+else:
+    st.info("📂 Please upload a ZIP.csv file to continue.")
