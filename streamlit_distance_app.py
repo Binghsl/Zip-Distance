@@ -3,14 +3,13 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from math import radians, sin, cos, sqrt, atan2
 
-# 1. Read your template CSV and preserve leading zeros
+# 1. Read your template CSV
 df_template = pd.read_csv('ZIP.csv', dtype={'From Zip': str, 'To Zip': str})
 df_template['From Zip'] = df_template['From Zip'].str.zfill(5)
 df_template['To Zip'] = df_template['To Zip'].str.zfill(5)
 
-# 2. Expand to all 5 source ZIPs (also as 5-digit strings)
+# 2. Expand to all 5 source ZIPs
 sources = ['52806', '46168', '42307', '60446', '91730']
-sources = [z.zfill(5) for z in sources]
 to_zips = df_template['To Zip'].unique()
 df = pd.DataFrame(
     [(src, tgt) for src in sources for tgt in to_zips],
@@ -56,6 +55,6 @@ for _, row in df.iterrows():
 
 df['Distance on map in mile'] = distances
 
-# 6. Save output
+# 6. Save back out
 df.to_csv('ZIP_with_distances.csv', index=False)
-print("✅ Done! Distances written to ZIP_with_distances.csv")
+print("Done – distances written to ZIP_with_distances.csv")
